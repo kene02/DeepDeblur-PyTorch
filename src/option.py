@@ -16,6 +16,11 @@ from utils import str2bool, int2str
 
 import template
 
+# Patch torch.cuda functions if CUDA is unavailable
+if not torch.cuda.is_available():
+    torch.cuda.set_device = lambda device: None
+    torch.cuda.manual_seed_all = lambda seed: None
+    
 # Training settings
 parser = argparse.ArgumentParser(description='Dynamic Scene Deblurring')
 
@@ -250,30 +255,34 @@ if not args.distributed:
 def setup(args):
     cudnn.benchmark = True
 
-    if args.distributed:
+    # If distributed training is used, initialize the process group
+    if getattr(args, 'distributed', False):
         os.environ['MASTER_ADDR'] = args.master_addr
         os.environ['MASTER_PORT'] = args.master_port
 
         args.device_index = args.rank
-        args.world_size = args.n_GPUs   # consider single-node training
+        args.world_size = args.n_GPUs  # adjust for your setup
 
-        # initialize the process group
-        dist.init_process_group(args.dist_backend, init_method=args.init_method, rank=args.rank, world_size=args.world_size)
+        dist.init_process_group(args.dist_backend, init_method=args.init_method,
+                                rank=args.rank, world_size=args.world_size)
 
-    args.device = torch.device(args.device_type, args.device_index) if args.device_type == 'cuda' else torch.device(args.device_type)
-    args.dtype = torch.float32
-    args.dtype_eval = torch.float32 if args.precision == 'single' else torch.float16
-
-    # set seed for processes (distributed: different seed for each process)
-    # model parameters are synchronized explicitly at initial
-    if args.device_type == 'cuda' and torch.cuda.is_available():
-        torch.cuda.set_device(args.device)
-        if args.rank == 0:
+    # --- CPU/GPU selection ---
+    if getattr(args, 'device_type', 'cuda') == 'cuda' and torch.cuda.is_available():
+        print("Torch CUDA is available. Using GPU.")
+        args.device_type = 'cuda'
+        args.device_index = getattr(args, 'device', 0)
+        args.device = torch.device('cuda', args.device_index)
+        if getattr(args, 'rank', 0) == 0:
             torch.cuda.manual_seed_all(args.seed)
     else:
-        # CPU
+        print("GPU not available. Forcing CPU.")
         args.device_type = 'cpu'
-        args.device = torch.device("cpu")
+        args.device_index = -1
+        args.device = torch.device('cpu')
+
+    # Set precision
+    args.dtype = torch.float32
+    args.dtype_eval = torch.float32 if getattr(args, 'precision', 'single') == 'single' else torch.float16
 
     return args
 
