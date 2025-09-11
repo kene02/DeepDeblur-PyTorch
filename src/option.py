@@ -16,10 +16,10 @@ from utils import str2bool, int2str
 
 import template
 
-# Patch torch.cuda functions if CUDA is unavailable
+"""# Patch torch.cuda functions if CUDA is unavailable
 if not torch.cuda.is_available():
     torch.cuda.set_device = lambda device: None
-    torch.cuda.manual_seed_all = lambda seed: None
+    torch.cuda.manual_seed_all = lambda seed: None"""
     
 # Training settings
 parser = argparse.ArgumentParser(description='Dynamic Scene Deblurring')
@@ -28,7 +28,7 @@ parser = argparse.ArgumentParser(description='Dynamic Scene Deblurring')
 group_device = parser.add_argument_group('Device specs')
 group_device.add_argument('--seed', type=int, default=-1, help='random seed')
 group_device.add_argument('--num_workers', type=int, default=7, help='the number of dataloader workers')
-group_device.add_argument('--device_type', type=str, choices=('cpu', 'cuda'), default='cuda', help='device to run models')
+group_device.add_argument('--device_type', type=str, choices=('cpu', 'cuda'), default='cpu', help='device to run models')
 group_device.add_argument('--device_index', type=int, default=0, help='device id to run models')
 group_device.add_argument('--n_GPUs', type=int, default=1, help='the number of GPUs for training')
 group_device.add_argument('--distributed', type=str2bool, default=False, help='use DistributedDataParallel instead of DataParallel for better speed')
@@ -127,6 +127,11 @@ parser.add_argument('--template', type=str, default='', help='argument template 
 
 args = parser.parse_args()
 template.set_template(args)
+
+# Force CPU if CUDA is not available
+if not torch.cuda.is_available():
+    print("CUDA not available. Overriding device_type to 'cpu'.")
+    args.device_type = 'cpu'
 
 args.data_root = os.path.expanduser(args.data_root)   # recognize home directory
 now = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
@@ -243,28 +248,17 @@ if args.rank == 0:
 # device and type
 """if args.device_type == 'cuda' and not torch.cuda.is_available():
     raise Exception("GPU not available!")"""
-if not torch.cuda.is_available():
+"""if not torch.cuda.is_available():
     print("GPU not available, falling back to CPU.")
     device = torch.device("cpu")
 else:
-    device = torch.device("cuda")
+    device = torch.device("cuda")"""
 
 if not args.distributed:
     args.rank = 0
 
 def setup(args):
     cudnn.benchmark = True
-
-    # If distributed training is used, initialize the process group
-    if getattr(args, 'distributed', False):
-        os.environ['MASTER_ADDR'] = args.master_addr
-        os.environ['MASTER_PORT'] = args.master_port
-
-        args.device_index = args.rank
-        args.world_size = args.n_GPUs  # adjust for your setup
-
-        dist.init_process_group(args.dist_backend, init_method=args.init_method,
-                                rank=args.rank, world_size=args.world_size)
 
     # --- CPU/GPU selection ---
     if getattr(args, 'device_type', 'cuda') == 'cuda' and torch.cuda.is_available():
