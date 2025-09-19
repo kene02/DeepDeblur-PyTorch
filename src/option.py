@@ -182,7 +182,8 @@ if args.start_epoch > 1:
     # load previous arguments and keep the necessary ones same
 
     if os.path.exists(argname):
-        args_old = torch.load(argname)
+        with torch.serialization.safe_globals([argparse.Namespace]):
+            args_old = torch.load(argname, weights_only=False)
 
         load_list = []  # list of arguments that are fixed
         # training
